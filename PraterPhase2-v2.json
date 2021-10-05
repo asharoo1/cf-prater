@@ -1,0 +1,517 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Amazon ECS Prater Testnet Phase 2-Version 2 Template",
+
+    "Parameters": {
+  
+      "ClusterName": {
+        "Type": "String",
+        "Default": "Validator-Cluster-2",
+        "Description": "Enter the ClusterName in which you want to create your Validator Services."
+      },
+  
+      
+      "SecurityGroupName":{
+        "Type": "AWS::EC2::SecurityGroup::GroupName",
+        "Description": "Choose your Security Group"
+      },
+      
+      "PrivateBeaconIP":{
+
+        "Type": "String",
+        "Description": "Enter Your Private Beacon Node Ip.",
+        "Default": "xx.xxx.xxx.xx"
+
+      },
+      "ConnectTo": {
+  
+        "Type": "String",
+        "AllowedValues": [
+    
+            "Launchnodes Beacon Node",
+    
+            "Your own Beacon Node"
+    
+        ],
+        "Description": "Choose the desired option"
+    
+      }
+      
+    },
+  
+    "Conditions": {
+      "LN_Node": {
+  
+        "Fn::Equals": [
+  
+            {
+                "Ref": "ConnectTo"
+            },
+            "Launchnodes Beacon Node"
+        ]
+      },
+      "Private_Node": {
+  
+        "Fn::Equals": [
+  
+            {
+                "Ref": "ConnectTo"
+            },
+            "Your own Beacon Node"
+  
+        ]
+      }
+    },
+  
+    "Resources": {
+  
+  
+      "LNAddInBoundRule": {
+        "Type": "AWS::EC2::SecurityGroupIngress",
+        "Condition": "LN_Node",
+        "Properties": {
+            "GroupName": {
+              "Ref": "SecurityGroupName"
+            },
+            "IpProtocol": "tcp",
+            "CidrIp": "18.170.40.156/32",
+            "FromPort": 6001,
+            "ToPort": 6001
+        }
+      },
+  
+      "PrivateAddInBoundRule": {
+        "Type": "AWS::EC2::SecurityGroupIngress",
+        "Condition": "Private_Node",
+        "Properties": {
+            "GroupName": {
+               "Ref": "SecurityGroupName"
+            },
+            "IpProtocol": "tcp",
+            "CidrIp": {
+              "Fn::Join" : [ "", [{"Ref":"PrivateBeaconIP"},"/32"] ]
+            },
+            "FromPort": 6001,
+            "ToPort": 6001
+        }
+      },
+  
+  
+      "LNGatewayTaskDefinition": {
+        "Type": "AWS::ECS::TaskDefinition",
+        "Condition": "LN_Node",
+        "Properties": {
+          
+          "RequiresCompatibilities": ["EC2"],
+          "Family": {
+            "Fn::Join" : [ "-", [ "aws_validator_gateway", {"Ref":"ClusterName"}] ]
+          },
+          "ContainerDefinitions": [
+            {
+              "Name": "gateway_container",
+              "MountPoints": [],
+              "Image": "117940112483.dkr.ecr.us-east-1.amazonaws.com/9828a790-daee-4945-95d5-2656f7cb719f/cg-713886640/validator_gateway:2.2-latest",
+              "Cpu": 0,
+              "EntryPoint": [],
+              "PortMappings": [
+                {
+                  "ContainerPort": 6001,
+                    "HostPort": 6001,
+                    "Protocol": "tcp"
+                }
+              ],
+              "Essential": true,
+              "Command": [
+                "--connect-launchnodes=true",
+                "--beacon_url=18.170.40.156"
+              ],
+              "Environment": [],
+              "LogConfiguration": {
+                "LogDriver": "awslogs",
+                "Options": {
+                  "awslogs-group": {
+                    "Ref": "LNValidatorGatewayLogGroup"
+                  },
+                  "awslogs-region": {
+                    "Ref": "AWS::Region"
+                  },
+                  "awslogs-stream-prefix": "ecs"
+                }
+              },
+              "MemoryReservation": 300
+            }
+          ],
+  
+          "TaskRoleArn":{
+            "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/ValidatorRole" 
+          },
+          
+          "NetworkMode": "host",
+          "Volumes": []
+        }
+        
+      },
+  
+      "LNValidatorGatewayLogGroup": {
+        "Type": "AWS::Logs::LogGroup",
+        "Condition": "LN_Node",
+        "Properties": {
+          "LogGroupName": {
+            "Fn::Join" : [ "-", [ "aws_validator_gateway", {"Ref":"ClusterName"}] ]
+          }
+        }
+      },
+  
+      "PrivateGatewayTaskDefinition": {
+        "Type": "AWS::ECS::TaskDefinition",
+        "Condition": "Private_Node",
+        "Properties": {
+          "RequiresCompatibilities": ["EC2"],
+          "Family": {
+            "Fn::Join" : [ "-", [ "aws_validator_gateway", {"Ref":"ClusterName"}] ]
+          },
+          "ContainerDefinitions": [
+            {
+              "Name": "gateway_container",
+              "MountPoints": [],
+              "Image": "117940112483.dkr.ecr.us-east-1.amazonaws.com/9828a790-daee-4945-95d5-2656f7cb719f/cg-713886640/validator_gateway:2.2-latest",
+              "Cpu": 0,
+              "EntryPoint": [],
+              "PortMappings": [
+                {
+                  "ContainerPort": 6001,
+                  "HostPort": 6001,
+                  "Protocol": "tcp"
+                }
+              ],
+              "Essential": true,
+              "Command": [
+                "--connect-launchnodes=false",
+                {
+                  "Fn::Join" : [ "=", [ "--beacon_url", {"Ref":"PrivateBeaconIP"}] ]
+                }
+              ],
+              "Environment": [],
+              "LogConfiguration": {
+                "LogDriver": "awslogs",
+                "Options": {
+                  "awslogs-group": {
+                    "Ref": "PrivateValidatorGatewayLogGroup"
+                  },
+                  "awslogs-region": {
+                    "Ref": "AWS::Region"
+                  },
+                  "awslogs-stream-prefix": "ecs"
+                }
+              },
+              "MemoryReservation": 300
+            }
+          ],
+  
+          "TaskRoleArn":{
+            "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/ValidatorRole" 
+          },
+          
+          "NetworkMode": "host",
+          "Volumes": []
+        }
+      },
+  
+      "PrivateValidatorGatewayLogGroup": {
+        "Type": "AWS::Logs::LogGroup",
+        "Condition": "Private_Node",
+        "Properties": {
+          "LogGroupName": {
+            "Fn::Join" : [ "-", [ "aws_validator_gateway", {"Ref":"ClusterName"}] ]
+          }
+        }
+      },
+  
+  
+      "LNValidatorTaskDefinition": {
+        "Type": "AWS::ECS::TaskDefinition",
+        "Condition": "LN_Node",
+        "Properties": {
+          "RequiresCompatibilities": ["EC2"],
+          "ContainerDefinitions": [
+            {
+              "Name": "validator_container",
+              "MountPoints": [
+                {
+                  "ContainerPath": "/wallet",
+                  "SourceVolume": "datavol"
+                },
+                {
+                  "ContainerPath": "/validatorDB",
+                  "SourceVolume": "Validatordir"
+                },
+                {
+                  "ContainerPath": "/walletpth",
+                  "SourceVolume": "walletpass"
+                }
+              ],
+              "Image": "709825985650.dkr.ecr.us-east-1.amazonaws.com/launch-nodes/validator:v1.4.3",
+              "Cpu": 0,
+              "LogConfiguration": {
+                "LogDriver": "awslogs",
+                "Options": {
+                  "awslogs-group": {
+                    "Ref": "LNValidatorLogGroup"
+                  },
+                  "awslogs-region": {
+                    "Ref": "AWS::Region"
+                  },
+                  "awslogs-stream-prefix": "ecs"
+                }
+              },
+              "PortMappings": [],
+              "Essential": true,
+              "command": [
+                "--datadir=/validatorDB",
+                "--beacon-rpc-provider=18.170.40.156:4000",
+                "--wallet-dir=/wallet",
+                "--wallet-password-file=/walletpth/pass.txt",
+                "--accept-terms-of-use=true",
+                "--attest-timely",
+                "--prater"
+              ],
+              "Environment": [
+                {
+                  "Name": "ECS_DATADIR",
+                  "Value": "/wallet"
+                },
+                {
+                  "Name": "ECS_HOST_DATA_DIR",
+                  "Value": "/home/ec2-user/Eth2Validators/prysm-wallet-v2"
+                }
+              ],
+              "MemoryReservation": 500,
+              "WorkingDirectory": "/home/ec2-user/Eth2Validators/prysm-wallet-v2/"
+            }
+          ],
+  
+         
+          "Family": {
+            "Fn::Join" : [ "-", [ "aws_validator_task", {"Ref":"ClusterName"}] ]
+          },
+          
+          "Volumes": [
+            {
+              "Name": "datavol",
+              "Host": {
+                "SourcePath": "/home/ec2-user/Eth2Validators/prysm-wallet-v2"
+              }
+            },
+            {
+              "Name": "Validatordir",
+              "Host": {
+                "SourcePath": "/home/ec2-user/Eth2"
+              }
+            },
+            {
+              "Name": "walletpass",
+              "Host": {
+                "SourcePath": "/home/ec2-user/password"
+              }
+            }
+          ]
+        }
+      },
+  
+      "LNValidatorLogGroup": {
+        "Type": "AWS::Logs::LogGroup",
+        "Condition": "LN_Node",
+        "Properties": {
+          "LogGroupName": {
+            "Fn::Join" : [ "-", [ "aws_validator_task", {"Ref":"ClusterName"}] ]
+          }
+        }
+      },
+  
+  
+      "PrivateValidatorTaskDefinition": {
+        "Type": "AWS::ECS::TaskDefinition",
+        "Condition": "Private_Node",
+        "Properties": {
+          "RequiresCompatibilities": ["EC2"],
+          "ContainerDefinitions": [
+            {
+              "Name": "validator_container",
+              "MountPoints": [
+                {
+                  "ContainerPath": "/wallet",
+                  "SourceVolume": "datavol"
+                },
+                {
+                  "ContainerPath": "/validatorDB",
+                  "SourceVolume": "Validatordir"
+                },
+                {
+                  "ContainerPath": "/walletpth",
+                  "SourceVolume": "walletpass"
+                }
+              ],
+              "Image": "709825985650.dkr.ecr.us-east-1.amazonaws.com/launch-nodes/validator:v1.4.3",
+              "Cpu": 0,
+              "LogConfiguration": {
+                "LogDriver": "awslogs",
+                "Options": {
+                  "awslogs-group": {
+                    "Ref": "PrivateValidatorLogGroup"
+                  },
+                  "awslogs-region": {
+                    "Ref": "AWS::Region"
+                  },
+                  "awslogs-stream-prefix": "ecs"
+                }
+              },
+              "PortMappings": [],
+              "Essential": true,
+              "command": [
+                "--datadir=/validatorDB",
+                {
+                  "Fn::Join" : [ "", [ "--beacon-rpc-provider=", {"Ref":"PrivateBeaconIP"},":4000"] ]
+                },
+                "--wallet-dir=/wallet",
+                "--wallet-password-file=/walletpth/pass.txt",
+                "--accept-terms-of-use=true",
+                "--attest-timely",
+                "--prater"
+              ],
+              "Environment": [
+                {
+                  "Name": "ECS_DATADIR",
+                  "Value": "/wallet"
+                },
+                {
+                  "Name": "ECS_HOST_DATA_DIR",
+                  "Value": "/home/ec2-user/Eth2Validators/prysm-wallet-v2"
+                }
+              ],
+              "MemoryReservation": 500,
+              "WorkingDirectory": "/home/ec2-user/Eth2Validators/prysm-wallet-v2/"
+            }
+          ],
+  
+          
+          
+          "Family": {
+            "Fn::Join" : [ "-", [ "aws_validator_task", {"Ref":"ClusterName"}] ]
+          },
+          
+          "Volumes": [
+            {
+              "Name": "datavol",
+              "Host": {
+                "SourcePath": "/home/ec2-user/Eth2Validators/prysm-wallet-v2"
+              }
+            },
+            {
+              "Name": "Validatordir",
+              "Host": {
+                "SourcePath": "/home/ec2-user/Eth2"
+              }
+            },
+            {
+              "Name": "walletpass",
+              "Host": {
+                "SourcePath": "/home/ec2-user/password"
+              }
+            }
+          ]
+        }
+      },
+      
+      "PrivateValidatorLogGroup": {
+        "Type": "AWS::Logs::LogGroup",
+        "Condition": "Private_Node",
+        "Properties": {
+          "LogGroupName": {
+            "Fn::Join" : [ "-", [ "aws_validator_task", {"Ref":"ClusterName"}] ]
+          }
+        }
+      },
+  
+      "LNGatewayECSService": {
+        "Type": "AWS::ECS::Service",
+        "Condition": "LN_Node",
+        "Properties": {
+          "Cluster": {
+            "Ref": "ClusterName"
+          },
+          "DesiredCount": 1,
+          "LaunchType": "EC2",
+          "DeploymentConfiguration": {
+            "MinimumHealthyPercent": 0,
+            "MaximumPercent": 100
+          },
+          "ServiceName": "Validator-Gateway-Service",
+          "TaskDefinition": {
+            "Ref": "LNGatewayTaskDefinition"
+          }
+        }
+      },
+  
+      "LNValidatorECSService": {
+        "Type": "AWS::ECS::Service",
+        "Condition": "LN_Node",
+        "Properties": {
+          "Cluster": {
+            "Ref": "ClusterName"
+          },
+          "DesiredCount": 1,
+          "LaunchType": "EC2",
+          "DeploymentConfiguration": {
+            "MinimumHealthyPercent": 0,
+            "MaximumPercent": 100
+          },
+          "ServiceName": "Validator-Service",
+          "TaskDefinition": {
+            "Ref": "LNValidatorTaskDefinition"
+          }
+        }
+      },
+  
+      "PrivateGatewayECSService": {
+        "Type": "AWS::ECS::Service",
+        "Condition": "Private_Node",
+        "Properties": {
+          "Cluster": {
+            "Ref": "ClusterName"
+          },
+          "DesiredCount": 1,
+          "LaunchType": "EC2",
+          "DeploymentConfiguration": {
+            "MinimumHealthyPercent": 0,
+            "MaximumPercent": 100
+          },
+          "ServiceName": "Validator-Gateway-Service",
+          "TaskDefinition": {
+            "Ref": "PrivateGatewayTaskDefinition"
+          }
+        }
+      },
+  
+      "PrivateValidatorECSService": {
+        "Type": "AWS::ECS::Service",
+        "Condition": "Private_Node",
+        "Properties": {
+          "Cluster": {
+            "Ref": "ClusterName"
+          },
+          "DesiredCount": 1,
+          "LaunchType": "EC2",
+          "DeploymentConfiguration": {
+            "MinimumHealthyPercent": 0,
+            "MaximumPercent": 100
+          },
+          "ServiceName": "Validator-Service",
+          "TaskDefinition": {
+            "Ref": "PrivateValidatorTaskDefinition"
+          }
+        }
+      }
+  
+    }
+    
+  }
